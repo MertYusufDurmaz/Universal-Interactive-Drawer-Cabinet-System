@@ -1,126 +1,85 @@
-﻿using UnityEngine;
+using UnityEngine;
+using UnityEngine.Events;
 using System.Collections;
-using UnityEditor;
+
+// Çekmecenin hareket tipini belirleyen Enum
+public enum DrawerMovementType
+{
+    Slide,  // İleri/Geri kayma
+    Rotate  // Kapak gibi dönme
+}
 
 public class DrawerController : MonoBehaviour, ITargetable
 {
-    public float openDistance = 0.002f;
+    [Header("Movement Settings")]
+    public DrawerMovementType movementType = DrawerMovementType.Slide;
     public float moveDuration = 0.35f;
-    public Vector3 moveDirection = Vector3.forward;
+    
+    [Tooltip("Slide seçiliyse, çekmecenin ne kadar ve hangi yöne açılacağı (Local)")]
+    public Vector3 slideOffset = new Vector3(0f, 0f, 0.4f);
+    
+    [Tooltip("Rotate seçiliyse, kapağın hangi açıyla döneceği")]
+    public Vector3 rotationOffset = new Vector3(0f, 120f, 0f);
 
-    private Quaternion closedRotation;
-    private Quaternion openRotation;
-    private bool isRotational = false;
+    [Header("Highlight Settings")]
+    [Tooltip("Sadece parlamasını istediğiniz Mesh'leri buraya sürükleyin. İçindeki toplanabilir eşyaları eklemeyin.")]
+    public Renderer[] drawerRenderers;
+    [ColorUsage(true, true)] // HDRP Emission renkleri için
+    public Color highlightEmissionColor = Color.yellow;
+
+    [Header("Audio & Events")]
+    public UnityEvent onDrawerOpened;
+    public UnityEvent onDrawerClosed;
+
     private bool isOpened = false;
     private Vector3 closedPosition;
     private Vector3 openPosition;
+    private Quaternion closedRotation;
+    private Quaternion openRotation;
     private Coroutine movementCoroutine = null;
-
-    private Renderer[] renderers;
 
     void Start()
     {
+        // Başlangıç pozisyonlarını kaydet ve hedefleri hesapla
         closedPosition = transform.localPosition;
+        openPosition = closedPosition + slideOffset;
+
         closedRotation = transform.localRotation;
+        openRotation = closedRotation * Quaternion.Euler(rotationOffset);
 
-        // Dolabın altındaki tüm rendererları alıyoruz.
-        // DİKKAT: Buna dolabın içindeki toplanabilir eşyalar da dahil olabilir.
-        renderers = GetComponentsInChildren<Renderer>();
+        // Eğer Inspector'dan renderer atanmamışsa, sadece bu objedekini al (Çocukları alma!)
+        if (drawerRenderers == null || drawerRenderers.Length == 0)
+        {
+            Renderer myRenderer = GetComponent<Renderer>();
+            if (myRenderer != null)
+            {
+                drawerRenderers = new Renderer[] { myRenderer };
+            }
+        }
+    }
 
-        string objName = gameObject.name.ToLower();
-
-        if (objName.Contains("drawer3left"))
-        {
-            isRotational = true;
-            openRotation = closedRotation * Quaternion.Euler(0, 120, 0);
-        }
-        else if (objName.Contains("drawer3right"))
-        {
-            isRotational = true;
-            openRotation = closedRotation * Quaternion.Euler(0, -120, 0);
-        }
-        else if (objName.Contains("drawer4left"))
-        {
-            isRotational = true;
-            openRotation = closedRotation * Quaternion.Euler(0, 0, 100);
-        }
-        else if (objName.Contains("drawer4right"))
-        {
-            isRotational = true;
-            openRotation = closedRotation * Quaternion.Euler(0, 0, -96);
-        }
-        else if (objName.Contains("drawer2"))
-        {
-            isRotational = false;
-            openPosition = closedPosition + new Vector3(0f, 0f, 0.36f);
-        }
-        else if (objName.Contains("drawer4"))
-        {
-            isRotational = false;
-            openPosition = closedPosition + new Vector3(0.005f, 0f, 0.0f);
-        }
-        else if (objName.Contains("drawer5"))
-        {
-            isRotational = false;
-            openPosition = closedPosition + new Vector3(0f, 0f, 1.7f);
-        }
-        else if (objName.Contains("kitchendrawer1"))
-        {
-            isRotational = false;
-            openPosition = closedPosition + new Vector3(1f, 0f, 0.0f);
-        }
-        else if (objName.Contains("drawer6"))
-        {
-            isRotational = false;
-            openPosition = closedPosition + new Vector3(0f, 0f, -0.4f);
-        }
-        else
-        {
-            isRotational = false;
-            Vector3 localOffset = transform.localRotation * moveDirection.normalized * openDistance;
-            openPosition = closedPosition + localOffset;
-        }
+    public void Interact()
+    {
+        ToggleDrawer();
     }
 
     public void ToggleDrawer()
     {
         isOpened = !isOpened;
-        if (VoiceManager.Instance != null)
-        {
-            if (isOpened)
-            {
-                if (gameObject.name == "drawer3left" || gameObject.name == "drawer3right" || gameObject.name == "drawer4left" || gameObject.name == "drawer4right")
-                {
-                    VoiceManager.Instance.PlayBigDrawerOpen();
-                }
-                else
-                {
-                    VoiceManager.Instance.PlayDrawerOpen();
-                }
 
-            }
-            else
-            {
-                if (gameObject.name == "drawer3left" || gameObject.name == "drawer3right" || gameObject.name == "drawer4left" || gameObject.name == "drawer4right")
-                {
-                    VoiceManager.Instance.PlayBigDrawerClose();
-                }
-                else
-                {
-                    VoiceManager.Instance.PlayDrawerClose();
-                }
-
-            }
-
-        }
+        // Kendi VoiceManager'ın yerine Event kullandık. 
+        // İster büyük, ister küçük çekmece sesi olsun; Inspector'dan bağla.
+        if (isOpened)
+            onDrawerOpened?.Invoke();
+        else
+            onDrawerClosed?.Invoke();
 
         if (movementCoroutine != null)
         {
             StopCoroutine(movementCoroutine);
         }
 
-
-        if (isRotational)
+        if (movementType == DrawerMovementType.Rotate)
         {
             Quaternion target = isOpened ? openRotation : closedRotation;
             movementCoroutine = StartCoroutine(RotateObject(target));
@@ -132,7 +91,7 @@ public class DrawerController : MonoBehaviour, ITargetable
         }
     }
 
-    IEnumerator MoveObject(Vector3 targetPosition)
+    private IEnumerator MoveObject(Vector3 targetPosition)
     {
         Vector3 startPosition = transform.localPosition;
         float timeElapsed = 0f;
@@ -148,7 +107,7 @@ public class DrawerController : MonoBehaviour, ITargetable
         movementCoroutine = null;
     }
 
-    IEnumerator RotateObject(Quaternion targetRotation)
+    private IEnumerator RotateObject(Quaternion targetRotation)
     {
         Quaternion startRotation = transform.localRotation;
         float timeElapsed = 0f;
@@ -164,23 +123,19 @@ public class DrawerController : MonoBehaviour, ITargetable
         movementCoroutine = null;
     }
 
-    // 🔹 ITargetable arayüzü için eklenen metodlar
+    // --- ITargetable Interface Uygulaması ---
     public void ToggleHighlight(bool state)
     {
-        if (renderers == null) return;
+        if (drawerRenderers == null) return;
 
-        foreach (var r in renderers)
+        foreach (var r in drawerRenderers)
         {
-            // DÜZELTME BURADA: Eğer renderer yok edildiyse (pil alındıysa) null kontrolü yap
             if (r == null) continue;
 
             if (r.material.HasProperty("_EmissionColor"))
-                r.material.SetColor("_EmissionColor", state ? Color.yellow * 1f : Color.black);
+            {
+                r.material.SetColor("_EmissionColor", state ? highlightEmissionColor : Color.black);
+            }
         }
-    }
-
-    public void Interact()
-    {
-        ToggleDrawer();
     }
 }
